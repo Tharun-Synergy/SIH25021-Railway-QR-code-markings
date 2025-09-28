@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code Reader</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin: 20px; }
+        #video { border: 2px solid #ccc; margin: 10px; max-width: 100%; }
+        #capture { padding: 10px 20px; font-size: 16px; background: #007bff; color: white; border: none; cursor: pointer; }
+        #capture:hover { background: #0056b3; }
+        #capture:disabled { background: #ccc; cursor: not-allowed; }
+        #result, #debug { margin: 20px; padding: 10px; border: 1px solid #ddd; min-height: 20px; }
+        #debug { background: #f8f9fa; font-size: 14px; text-align: left; max-height: 200px; overflow-y: auto; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>QR Code Scanner</h1>
+    <video id="video" width="640" height="480" autoplay muted playsinline></video>
+    <br>
+    <button id="capture">Capture QR Code</button>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <div id="result"></div>
+    <div id="debug"></div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const resultDiv = document.getElementById('result');
+        const debugDiv = document.getElementById('debug');
+        const captureBtn = document.getElementById('capture');
+
+        function log(msg, isError = false) {
+            const className = isError ? 'error' : '';
+            const p = document.createElement('p');
+            p.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${msg}`;
+            if (className) p.className = className;
+            debugDiv.appendChild(p);
+            debugDiv.scrollTop = debugDiv.scrollHeight;  // Auto-scroll
+            console.log(msg);
+        }
+
+        function clearLogs() {
+            debugDiv.innerHTML = '';
+        }
+
+        // Start camera (FIXED: No space in getUser Media)
+        navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                facingMode: 'environment',  // Prefer back camera
+                width: { ideal: 640 },
+                height: { ideal: 480 }
+            } 
+        })
+        .then(stream => {
+            video.srcObject = stream;
+            log('Camera access granted! Video stream started.');
+            captureBtn.disabled = false;  // Enable button
+        })
+        .catch(err => {
+            log(`Camera error: ${err.name} - ${err.message}`, true);
+            if (err.name === 'NotAllowedError') {
+                log('Please allow camera access in browser settings (lock icon in address bar).', true);
+            } else if (err.name === 'NotFoundError') {
+                log('No camera found. Check if webcam is connected.', true);
+            }
+            captureBtn.disabled = true;
+        });
+
+        // Wait for video to be ready
+        video.addEventListener('loadedmetadata', () => {
+            log(`Video ready: ${video.videoWidth}x${video.videoHeight}`);
+        });
+
+        video.addEventListener('error', (e) => {
+            log(`Video error: ${e}`, true);
+        });
+
+        // Capture button click
+        captureBtn.addEventListener('click', () => {
+            if (video.videoWidth === 0 || !video.srcObject) {
+                log('Video not ready. Wait for camera to load or check permissions.', true);
+                return;
+            }
+
+            captureBtn.disabled = true;  // Prevent double-click
+            log('Capturing image...');
+            clearLogs();  // Optional: Clear old logs
+
+            // Draw current frame to canvas
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            const imageData = canvas.toDataURL('image/png');
+            log(`Image captured (${canvas.width}x${canvas.height} pixels). Sending to API...`);
+
+            // Send to backend API
+            fetch('/api/scan-qr', {  // Relative URL to avoid CORS
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ image: imageData })
+            })
+            .then(response => {
+                log(`API Response Status: ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                log('API Response Received:', false);
+                console.log(data);  // Full data in console
+                if (data.success) {
+                    resultDiv.innerHTML = `<p class="success">Decoded Code: <strong>${data.code}</strong></p>`;
+                    log(`Success! Decoded: ${data.code}`);
+                } else {
+                    resultDiv.innerHTML = `<p class="error">Error: ${data.error}</p>`;
+                    log(`API Error: ${data.error}`, true);
+                }
+            })
+            .catch(err => {
+                log(`Fetch/API Error: ${err.message}`, true);
+                resultDiv.innerHTML = `<p class="error">Failed to process image: ${err.message}</p>`;
+                if (err.message.includes('Failed to fetch')) {
+                    log('Backend might not be running or CORS issue. Check server terminal.', true);
+                }
+            })
+            .finally(() => {
+                captureBtn.disabled = false;  // Re-enable button
+            });
+        });
+
+        // Initial log
+        log('Page loaded. Requesting camera access...');
+    </script>
+</body>
+</html>
