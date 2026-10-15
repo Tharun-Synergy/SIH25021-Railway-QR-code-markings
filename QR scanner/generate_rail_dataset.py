@@ -76,13 +76,18 @@ for i in range(1500):  # More samples for robustness
     
     cv2.imwrite(f'{base_path}/qr/rail_qr_{i}.png', engraved)
 
-# No QR: Pure rusted rail backgrounds
-for i in range(1500):
-    bg = generate_rust_texture(300, 300)
-    # Add more wear
-    bg = cv2.GaussianBlur(bg, (5, 5), 0)
-    cv2.imwrite(f'{base_path}/no_qr/rail_no_{i}.png', bg)
+# 1. In your QR generation loop, use ERROR_CORRECT_H (30% recovery):
+qr = qrcode.QRCode(
+    version=2,
+    error_correction=qrcode.constants.ERROR_CORRECT_H,  # Critical for railway wear & tear
+    box_size=8,
+    border=4
+)
 
+# 2. At the bottom of generate_rail_dataset.py, replace shutil.copy with shutil.move:
+for i in range(300):
+    shutil.move(f'{base_path}/qr/rail_qr_{i}.png', f'dataset_rail/val/qr/rail_qr_{i}.png')
+    shutil.move(f'{base_path}/no_qr/rail_no_{i}.png', f'dataset_rail/val/no_qr/rail_no_{i}.png')
 # Val split (20%)
 for i in range(300):
     shutil.copy(f'{base_path}/qr/rail_qr_{i}.png', f'dataset_rail/val/qr/')
